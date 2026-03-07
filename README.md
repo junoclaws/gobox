@@ -2,7 +2,7 @@
 
 A lightweight, BusyBox-like utility toolset written in Go. This project implements a minimal set of Unix/Linux command-line tools in pure Go, designed to be a portable alternative to BusyBox for system administration and file management tasks.
 
-**Version:** 0.1 (partial implementation)
+**Version:** 0.2 (grep added)
 
 ## Project Overview
 
@@ -143,7 +143,64 @@ gobox netstat -sort recvq
 - IPv6 support
 - Linux-only implementation
 
-### 7. **xargs** - Build and Execute Commands from Input
+### 7. **grep** - Pattern Search in Files
+Search for patterns in files using regular expressions or fixed strings.
+
+**Options:**
+- `-i` - Ignore case when matching
+- `-v` - Invert match (show non-matching lines)
+- `-c` - Show count of matching lines only
+- `-n` - Show line numbers with output
+- `-r` - Recursive search in directories
+- `-F` - Interpret pattern as fixed string (not regex)
+- `--help` - Show help message
+
+**Usage:**
+```bash
+gobox grep "error" /var/log/syslog
+gobox grep -i -r "TODO" /path/to/code
+gobox grep -v "^#" config.txt
+gobox grep -c "pattern" file.txt
+gobox grep -n -i "function" *.go
+gobox grep -F "hello.world" file.txt  # Literal dot, not regex
+cat file.txt | gobox grep "pattern"   # Read from stdin
+```
+
+**Features:**
+- Full regular expression support (Go regexp syntax)
+- Case-insensitive matching with `-i`
+- Invert match to exclude patterns with `-v`
+- Line counting with `-c`
+- Line numbers in output with `-n`
+- Recursive directory search with `-r`
+- Fixed string matching (no regex) with `-F`
+- Standard input support for piping
+
+**Examples:**
+```bash
+# Search for error messages
+gobox grep "ERROR" /var/log/app.log
+
+# Case-insensitive search for TODO comments
+gobox grep -i -r "todo" ./src
+
+# Count occurrences of a pattern
+gobox grep -c "warning" logfile.txt
+
+# Show line numbers with matches
+gobox grep -n "func" *.go
+
+# Exclude comment lines
+gobox grep -v "^#" config.yaml
+
+# Fixed string search (treat dots literally)
+gobox grep -F "192.168.1.1" network.txt
+
+# Pipe from another command
+cat access.log | gobox grep "404"
+```
+
+### 8. **xargs** - Build and Execute Commands from Input
 Build and execute command lines from standard input.
 
 **Options:**

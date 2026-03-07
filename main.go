@@ -55,6 +55,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "xargs:", err)
 			return 2
 		}
+	case "grep":
+		if err := grepCmd(args); err != nil {
+			fmt.Fprintln(stderr, "grep:", err)
+			return 2
+		}
 	case "--help", "-h", "help":
 		usage(stdout)
 		return 0
@@ -82,6 +87,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  iostat   Show block device I/O stats (Linux cgroup/blkio)")
 	fmt.Fprintln(w, "  netstat  Show network connection status")
 	fmt.Fprintln(w, "  xargs    Build and execute command lines from stdin")
+	fmt.Fprintln(w, "  grep     Search for patterns in files (regex support)")
 	fmt.Fprintln(w, "  version  Print program version (-v, --version)")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags differ from BusyBox; this is a best-effort minimal implementation.")
