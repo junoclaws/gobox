@@ -220,6 +220,145 @@ func TestGrepStdin(t *testing.T) {
 	}
 }
 
+func TestGrepOnlyMatching(t *testing.T) {
+	content := "test123\nfoo456bar\ntest789test\n"
+	writeTestFile(t, "test_only.txt", content)
+	defer os.Remove("test_only.txt")
+
+	cmd := exec.Command("./gobox", "grep", "-o", "test", "test_only.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	// With filename, format is: filename:match
+	if len(lines) != 3 {
+		t.Errorf("Expected 3 matches, got %d: %s", len(lines), result)
+	}
+	for _, line := range lines {
+		if !strings.HasSuffix(line, ":test") {
+			t.Errorf("Expected line ending with ':test', got: %s", line)
+		}
+	}
+}
+
+func TestGrepOnlyMatchingRegex(t *testing.T) {
+	content := "test123\nfoo456bar\ntest789test\n"
+	writeTestFile(t, "test_only_regex.txt", content)
+	defer os.Remove("test_only_regex.txt")
+
+	cmd := exec.Command("./gobox", "grep", "-o", "[0-9]+", "test_only_regex.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	expected := []string{"123", "456", "789"}
+	for i, exp := range expected {
+		if i >= len(lines) {
+			t.Errorf("Missing expected match: %s", exp)
+			continue
+		}
+		// Format is filename:match
+		if !strings.HasSuffix(lines[i], ":"+exp) {
+			t.Errorf("Expected line ending with ':%s', got '%s'", exp, lines[i])
+		}
+	}
+}
+
+func TestGrepOnlyMatchingStdin(t *testing.T) {
+	// Test -o without filename (stdin)
+	cmd := exec.Command("./gobox", "grep", "-o", "test")
+	cmd.Stdin = strings.NewReader("test123\nfoo456bar\ntest789test\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	expected := []string{"test", "test", "test"}
+	for i, exp := range expected {
+		if i >= len(lines) {
+			t.Errorf("Missing expected match: %s", exp)
+			continue
+		}
+		if lines[i] != exp {
+			t.Errorf("Expected '%s', got '%s'", exp, lines[i])
+		}
+	}
+}
+
+func TestGrepQuiet(t *testing.T) {
+	content := "hello world\nfoo bar\nhello again\n"
+	writeTestFile(t, "test_quiet.txt", content)
+	defer os.Remove("test_quiet.txt")
+
+	// Test quiet with match (exit code 0)
+	cmd := exec.Command("./gobox", "grep", "-q", "hello", "test_quiet.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep -q with match should succeed, got: %v", err)
+	}
+	if len(output) != 0 {
+		t.Errorf("Expected no output with -q, got: %s", string(output))
+	}
+
+	// Test quiet without match (exit code 1)
+	cmd = exec.Command("./gobox", "grep", "-q", "notfound", "test_quiet.txt")
+	err = cmd.Run()
+	if err == nil {
+		t.Error("Expected exit code 1 for no match with -q")
+	} else if exitErr, ok := err.(*exec.ExitError); ok {
+		if exitErr.ExitCode() != 1 {
+			t.Errorf("Expected exit code 1, got: %d", exitErr.ExitCode())
+		}
+	}
+}
+
+func TestGrepExtendedRegex(t *testing.T) {
+	content := "test123\nfoo456\ntest789\nbar\n"
+	writeTestFile(t, "test_extended.txt", content)
+	defer os.Remove("test_extended.txt")
+
+	// -E flag enables extended regex (same as default in Go, but tests the flag exists)
+	cmd := exec.Command("./gobox", "grep", "-E", "test[0-9]+", "test_extended.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "test123") {
+		t.Errorf("Expected 'test123' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "test789") {
+		t.Errorf("Expected 'test789' in output, got: %s", result)
+	}
+}
+
+func TestGrepLineBuffered(t *testing.T) {
+	content := "line1\nline2 with hello\nline3\n"
+	writeTestFile(t, "test_buffered.txt", content)
+	defer os.Remove("test_buffered.txt")
+
+	// --line-buffered flag should not cause errors
+	cmd := exec.Command("./gobox", "grep", "--line-buffered", "hello", "test_buffered.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "line2 with hello") {
+		t.Errorf("Expected 'line2 with hello' in output, got: %s", result)
+	}
+}
+
 // Helper function to write test files
 func writeTestFile(t *testing.T, filename, content string) {
 	err := os.WriteFile(filename, []byte(content), 0644)

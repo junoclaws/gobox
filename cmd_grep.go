@@ -20,6 +20,10 @@ func grepCmd(args []string) error {
 	lineNumber := fsFlags.Bool("n", false, "show line numbers")
 	recursive := fsFlags.Bool("r", false, "recursive search in directories")
 	fixedString := fsFlags.Bool("F", false, "interpret pattern as fixed string (not regex)")
+	_ = fsFlags.Bool("E", false, "use extended regular expressions (ERE) - default in Go")
+	onlyMatching := fsFlags.Bool("o", false, "print only the matched parts of a line")
+	quiet := fsFlags.Bool("q", false, "suppress all normal output (exit code only)")
+	lineBuffered := fsFlags.Bool("line-buffered", false, "use line buffering (flush after each line)")
 	help := fsFlags.Bool("help", false, "show help")
 
 	fsFlags.Usage = func() {
@@ -33,6 +37,8 @@ func grepCmd(args []string) error {
 		fmt.Fprintln(os.Stderr, "  gobox grep \"error\" /var/log/syslog")
 		fmt.Fprintln(os.Stderr, "  gobox grep -i -r \"TODO\" /path/to/code")
 		fmt.Fprintln(os.Stderr, "  gobox grep -v \"^#\" config.txt")
+		fmt.Fprintln(os.Stderr, "  gobox grep -o \"[0-9]+\" file.txt  # only matching parts")
+		fmt.Fprintln(os.Stderr, "  gobox grep -q \"pattern\" file && echo \"found\"")
 		fmt.Fprintln(os.Stderr, "  cat file.txt | gobox grep \"pattern\"")
 	}
 
@@ -73,7 +79,7 @@ func grepCmd(args []string) error {
 
 	// If no files specified, read from stdin
 	if len(files) == 0 {
-		if err := grepReader(os.Stdin, pattern, regex, *ignoreCase, *invert, *count, *lineNumber, *fixedString, ""); err != nil {
+		if err := grepReader(os.Stdin, pattern, regex, *ignoreCase, *invert, *count, *lineNumber, *fixedString, *onlyMatching, *quiet, *lineBuffered, ""); err != nil {
 			return err
 		}
 		return nil
@@ -90,13 +96,13 @@ func grepCmd(args []string) error {
 				if d.IsDir() {
 					return nil
 				}
-				return grepFile(path, pattern, regex, *ignoreCase, *invert, *count, *lineNumber, *fixedString, &totalMatches)
+				return grepFile(path, pattern, regex, *ignoreCase, *invert, *count, *lineNumber, *fixedString, *onlyMatching, *quiet, *lineBuffered, &totalMatches)
 			})
 			if err != nil {
 				return err
 			}
 		} else {
-			if err := grepFile(file, pattern, regex, *ignoreCase, *invert, *count, *lineNumber, *fixedString, &totalMatches); err != nil {
+			if err := grepFile(file, pattern, regex, *ignoreCase, *invert, *count, *lineNumber, *fixedString, *onlyMatching, *quiet, *lineBuffered, &totalMatches); err != nil {
 				return err
 			}
 		}
@@ -105,20 +111,26 @@ func grepCmd(args []string) error {
 	return nil
 }
 
-func grepFile(path, pattern string, regex *regexp.Regexp, ignoreCase, invert, count, lineNumber, fixedString bool, totalMatches *int) error {
+func grepFile(path, pattern string, regex *regexp.Regexp, ignoreCase, invert, count, lineNumber, fixedString, onlyMatching, quiet, lineBuffered bool, totalMatches *int) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("cannot open %s: %w", path, err)
 	}
 	defer file.Close()
 
-	return grepReader(file, pattern, regex, ignoreCase, invert, count, lineNumber, fixedString, path)
+	return grepReader(file, pattern, regex, ignoreCase, invert, count, lineNumber, fixedString, onlyMatching, quiet, lineBuffered, path)
 }
 
-func grepReader(r io.Reader, pattern string, regex *regexp.Regexp, ignoreCase, invert, count, lineNumber, fixedString bool, filename string) error {
+func grepReader(r io.Reader, pattern string, regex *regexp.Regexp, ignoreCase, invert, count, lineNumber, fixedString, onlyMatching, quiet, lineBuffered bool, filename string) error {
 	scanner := bufio.NewScanner(r)
 	lineNum := 0
 	matches := 0
+	var out io.Writer = os.Stdout
+
+	// Enable line buffering if requested
+	if lineBuffered {
+		out = os.Stdout // Go's stdout is already line-buffered when connected to terminal
+	}
 
 	for scanner.Scan() {
 		lineNum++
@@ -144,14 +156,41 @@ func grepReader(r io.Reader, pattern string, regex *regexp.Regexp, ignoreCase, i
 
 		if matched {
 			matches++
-			if !count {
-				if filename != "" {
-					fmt.Printf("%s:", filename)
+			if !quiet && !count {
+				if onlyMatching && !fixedString {
+					// Print only matched parts
+					var re *regexp.Regexp
+					if ignoreCase {
+						// Re-compile with case sensitivity for FindAllString
+						var err error
+						re, err = regexp.Compile(pattern)
+						if err != nil {
+							re = regex
+						}
+					} else {
+						re = regex
+					}
+					
+					foundMatches := re.FindAllString(line, -1)
+					for _, m := range foundMatches {
+						if filename != "" {
+							fmt.Fprintf(out, "%s:", filename)
+						}
+						if lineNumber {
+							fmt.Fprintf(out, "%d:", lineNum)
+						}
+						fmt.Fprintln(out, m)
+					}
+				} else {
+					// Print entire line
+					if filename != "" {
+						fmt.Fprintf(out, "%s:", filename)
+					}
+					if lineNumber {
+						fmt.Fprintf(out, "%d:", lineNum)
+					}
+					fmt.Fprintln(out, line)
 				}
-				if lineNumber {
-					fmt.Printf("%d:", lineNum)
-				}
-				fmt.Println(line)
 			}
 		}
 	}
@@ -160,12 +199,17 @@ func grepReader(r io.Reader, pattern string, regex *regexp.Regexp, ignoreCase, i
 		return fmt.Errorf("error reading %s: %w", filename, err)
 	}
 
-	if count {
+	if count && !quiet {
 		if filename != "" {
 			fmt.Printf("%s:%d\n", filename, matches)
 		} else {
 			fmt.Println(matches)
 		}
+	}
+
+	// Exit with code 1 if no matches found and not quiet
+	if quiet && matches == 0 {
+		os.Exit(1)
 	}
 
 	return nil
