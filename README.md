@@ -2,7 +2,7 @@
 
 A lightweight, BusyBox-like utility toolset written in Go. This project implements a minimal set of Unix/Linux command-line tools in pure Go, designed to be a portable alternative to BusyBox for system administration and file management tasks.
 
-**Version:** 0.2 (grep added)
+**Version:** 0.3 (sed with comprehensive test coverage)
 
 ## Project Overview
 
@@ -200,7 +200,99 @@ gobox grep -F "192.168.1.1" network.txt
 cat access.log | gobox grep "404"
 ```
 
-### 8. **xargs** - Build and Execute Commands from Input
+### 8. **sed** - Stream Editor for Text Transformation
+Filter and transform text using sed-like scripting syntax.
+
+**Options:**
+- `-n` - Suppress automatic printing of pattern space
+- `-i[SUFFIX]` - Edit files in place (makes backup if SUFFIX supplied)
+- `-e SCRIPT` - Add the script to the commands to be executed
+- `-f FILE` - Add the contents of FILE to the commands to be executed
+- `--help` - Show help message
+
+**Commands:**
+- `s/pattern/replacement/flags` - Substitute pattern with replacement
+- `d` - Delete pattern space
+- `p` - Print pattern space
+- `=` - Print current line number
+- `i\text` - Insert text before addressed line
+- `a\text` - Append text after addressed line
+- `c\text` - Change addressed line to text
+
+**Substitute flags:**
+- `g` - Global replacement (all occurrences)
+- `i` - Case-insensitive matching
+- `p` - Print the line if substitution was made
+- `N` - Replace Nth occurrence (1-9)
+
+**Usage:**
+```bash
+gobox sed 's/foo/bar/' file.txt
+gobox sed 's/foo/bar/g' file.txt
+gobox sed -n 's/foo/bar/p' file.txt
+gobox sed -i.bak 's/old/new/g' file.txt
+gobox sed -e 's/foo/bar/' -e 's/baz/qux/' file.txt
+cat file.txt | gobox sed 's/old/new/g'
+```
+
+**Features:**
+- Full regular expression support (Go regexp syntax)
+- Case-insensitive matching with `i` flag
+- Global replacement with `g` flag
+- Nth occurrence replacement (e.g., `s/foo/bar/2`)
+- Print on substitution with `p` flag
+- In-place editing with optional backup
+- Multiple expressions with `-e`
+- Script files with `-f`
+- Standard input support for piping
+- Backreference support (`${1}`, `${2}`, etc. or `\1`, `\2`)
+
+**Examples:**
+```bash
+# Basic substitution
+gobox sed 's/old/new/' file.txt
+
+# Global replacement
+gobox sed 's/old/new/g' file.txt
+
+# Case-insensitive
+gobox sed 's/hello/hi/i' file.txt
+
+# Replace 2nd occurrence only
+gobox sed 's/foo/bar/2' file.txt
+
+# Print only matching lines
+gobox sed -n '/pattern/p' file.txt
+
+# Delete matching lines
+gobox sed '/^#/d' config.txt
+
+# In-place editing with backup
+gobox sed -i.bak 's/foo/bar/g' file.txt
+
+# Multiple expressions
+gobox sed -e 's/foo/FOO/' -e 's/bar/BAR/' file.txt
+
+# Backreferences (swap first and last name)
+gobox sed 's/([A-Za-z]+) ([A-Za-z]+)/${2}, ${1}/' names.txt
+
+# Insert text before matching line
+gobox sed '/pattern/i\INSERTED TEXT' file.txt
+
+# Insert before line 3
+gobox sed '3i\BEFORE LINE 3' file.txt
+
+# Append text after matching line
+gobox sed '/pattern/a\APPENDED TEXT' file.txt
+
+# Change matching line
+gobox sed '/old line/c\NEW LINE' file.txt
+
+# Pipe from another command
+cat input.txt | gobox sed 's/old/new/g' > output.txt
+```
+
+### 9. **xargs** - Build and Execute Commands from Input
 Build and execute command lines from standard input.
 
 **Options:**
@@ -225,6 +317,20 @@ cat list.txt | gobox xargs -n 5 process_batch
 - Custom input delimiters
 - Verbose output for debugging
 - Graceful stdin/stdout/stderr handling
+
+### 10. **Pipeline Examples**
+Combine sed and grep for powerful text processing:
+
+```bash
+# Filter and transform log files
+cat access.log | gobox grep "404" | gobox sed 's/GET /REQUEST: /'
+
+# Clean and format config files
+gobox sed -e '/^#/d' -e '/^$/d' config.txt | gobox grep -i "server"
+
+# Batch rename with sed and xargs
+ls *.txt | gobox sed 's/.txt/.bak/' | gobox xargs -I {} mv {}
+```
 
 ## Global Options
 

@@ -60,6 +60,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "grep:", err)
 			return 2
 		}
+	case "sed":
+		if err := sedCmd(args); err != nil {
+			fmt.Fprintln(stderr, "sed:", err)
+			return 2
+		}
 	case "--help", "-h", "help":
 		usage(stdout)
 		return 0
@@ -88,6 +93,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  netstat  Show network connection status")
 	fmt.Fprintln(w, "  xargs    Build and execute command lines from stdin")
 	fmt.Fprintln(w, "  grep     Search for patterns in files (regex support)")
+	fmt.Fprintln(w, "  sed      Stream editor for filtering and transforming text")
 	fmt.Fprintln(w, "  version  Print program version (-v, --version)")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags differ from BusyBox; this is a best-effort minimal implementation.")
