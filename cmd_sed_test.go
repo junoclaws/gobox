@@ -280,3 +280,106 @@ func TestSedPrintLineNumber(t *testing.T) {
 		t.Errorf("Expected line number 3 in output, got: %s", result)
 	}
 }
+
+func TestSedInsert(t *testing.T) {
+	content := "line1\nline2\nline3\n"
+	writeTestFile(t, "test_sed_insert.txt", content)
+	defer os.Remove("test_sed_insert.txt")
+
+	cmd := exec.Command("./gobox", "sed", "/line2/i\\INSERTED", "test_sed_insert.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("sed command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "INSERTED") {
+		t.Errorf("Expected 'INSERTED' in output, got: %s", result)
+	}
+	// INSERTED should come before line2
+	idxInserted := strings.Index(result, "INSERTED")
+	idxLine2 := strings.Index(result, "line2")
+	if idxInserted >= idxLine2 {
+		t.Errorf("INSERTED should come before line2, got: %s", result)
+	}
+}
+
+func TestSedInsertNumeric(t *testing.T) {
+	content := "line1\nline2\nline3\n"
+	writeTestFile(t, "test_sed_insert_num.txt", content)
+	defer os.Remove("test_sed_insert_num.txt")
+
+	cmd := exec.Command("./gobox", "sed", "2i\\BEFORE_LINE_2", "test_sed_insert_num.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("sed command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "BEFORE_LINE_2") {
+		t.Errorf("Expected 'BEFORE_LINE_2' in output, got: %s", result)
+	}
+}
+
+func TestSedAppend(t *testing.T) {
+	content := "line1\nline2\nline3\n"
+	writeTestFile(t, "test_sed_append.txt", content)
+	defer os.Remove("test_sed_append.txt")
+
+	cmd := exec.Command("./gobox", "sed", "/line2/a\\APPENDED", "test_sed_append.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("sed command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "APPENDED") {
+		t.Errorf("Expected 'APPENDED' in output, got: %s", result)
+	}
+	// APPENDED should come after line2
+	idxLine2 := strings.Index(result, "line2")
+	idxAppended := strings.Index(result, "APPENDED")
+	if idxAppended <= idxLine2 {
+		t.Errorf("APPENDED should come after line2, got: %s", result)
+	}
+}
+
+func TestSedChange(t *testing.T) {
+	content := "line1\nline2\nline3\n"
+	writeTestFile(t, "test_sed_change.txt", content)
+	defer os.Remove("test_sed_change.txt")
+
+	cmd := exec.Command("./gobox", "sed", "/line2/c\\CHANGED", "test_sed_change.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("sed command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "CHANGED") {
+		t.Errorf("Expected 'CHANGED' in output, got: %s", result)
+	}
+	if strings.Contains(result, "line2") {
+		t.Errorf("line2 should be replaced, got: %s", result)
+	}
+}
+
+func TestSedChangeNumeric(t *testing.T) {
+	content := "line1\nline2\nline3\n"
+	writeTestFile(t, "test_sed_change_num.txt", content)
+	defer os.Remove("test_sed_change_num.txt")
+
+	cmd := exec.Command("./gobox", "sed", "2c\\REPLACED_LINE_2", "test_sed_change_num.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("sed command failed: %v", err)
+	}
+
+	result := string(output)
+	if !strings.Contains(result, "REPLACED_LINE_2") {
+		t.Errorf("Expected 'REPLACED_LINE_2' in output, got: %s", result)
+	}
+	if strings.Contains(result, "line2") {
+		t.Errorf("line2 should be replaced, got: %s", result)
+	}
+}

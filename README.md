@@ -2,7 +2,7 @@
 
 A lightweight, BusyBox-like utility toolset written in Go. This project implements a minimal set of Unix/Linux command-line tools in pure Go, designed to be a portable alternative to BusyBox for system administration and file management tasks.
 
-**Version:** 0.3 (sed added)
+**Version:** 0.3 (sed with i/a/c commands)
 
 ## Project Overview
 
@@ -215,6 +215,9 @@ Filter and transform text using sed-like scripting syntax.
 - `d` - Delete pattern space
 - `p` - Print pattern space
 - `=` - Print current line number
+- `i\text` - Insert text before addressed line
+- `a\text` - Append text after addressed line
+- `c\text` - Change addressed line to text
 
 **Substitute flags:**
 - `g` - Global replacement (all occurrences)
@@ -272,6 +275,18 @@ gobox sed -e 's/foo/FOO/' -e 's/bar/BAR/' file.txt
 
 # Backreferences (swap first and last name)
 gobox sed 's/([A-Za-z]+) ([A-Za-z]+)/${2}, ${1}/' names.txt
+
+# Insert text before matching line
+gobox sed '/pattern/i\INSERTED TEXT' file.txt
+
+# Insert before line 3
+gobox sed '3i\BEFORE LINE 3' file.txt
+
+# Append text after matching line
+gobox sed '/pattern/a\APPENDED TEXT' file.txt
+
+# Change matching line
+gobox sed '/old line/c\NEW LINE' file.txt
 
 # Pipe from another command
 cat input.txt | gobox sed 's/old/new/g' > output.txt

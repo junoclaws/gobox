@@ -148,6 +148,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  d                            Delete pattern space")
 	fmt.Fprintln(w, "  p                            Print pattern space")
 	fmt.Fprintln(w, "  =                            Print current line number")
+	fmt.Fprintln(w, "  i\\text                      Insert text before addressed line")
+	fmt.Fprintln(w, "  a\\text                      Append text after addressed line")
+	fmt.Fprintln(w, "  c\\text                      Change addressed line to text")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Substitute flags:")
 	fmt.Fprintln(w, "  g  Global replacement (all occurrences)")
@@ -161,6 +164,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gobox sed -n 's/foo/bar/p' file.txt")
 	fmt.Fprintln(w, "  gobox sed -i.bak 's/old/new/g' file.txt")
 	fmt.Fprintln(w, "  gobox sed -e 's/foo/bar/' -e 's/baz/qux/' file.txt")
+	fmt.Fprintln(w, "  gobox sed '/pattern/i\\NEW LINE' file.txt")
+	fmt.Fprintln(w, "  gobox sed '3a\\AFTER LINE 3' file.txt")
 	fmt.Fprintln(w, "  cat file.txt | gobox sed 's/old/new/g'")
 }
 
@@ -172,13 +177,18 @@ const (
 	cmdDelete
 	cmdPrint
 	cmdPrintLineNum
+	cmdInsert
+	cmdAppend
+	cmdChange
 )
 
 type sedCommand struct {
 	typ             cmdType
 	address         string
+	addressNum      int    // For numeric addresses like "3i"
 	pattern         *regexp.Regexp
 	replacement     string
+	text            string // For i/a/c commands
 	flags           string
 	global          bool
 	caseInsensitive bool
@@ -210,7 +220,40 @@ func parseCommand(script string) (sedCommand, error) {
 		return parseSubstitute(script[1:])
 	}
 
-	// Handle address + command: /pattern/d or /pattern/p
+	// Handle numeric address + command: 3i, 5a, 2c
+	if len(script) >= 2 {
+		// Check for numeric address
+		if script[0] >= '0' && script[0] <= '9' {
+			idx := 0
+			for idx < len(script) && script[idx] >= '0' && script[idx] <= '9' {
+				idx++
+			}
+			if idx < len(script) {
+				numStr := script[:idx]
+				num, err := strconv.Atoi(numStr)
+				if err == nil {
+					cmd.addressNum = num
+					cmdCmd := script[idx:]
+					switch cmdCmd[0] {
+					case 'i':
+						cmd.typ = cmdInsert
+						cmd.text = parseInsertText(cmdCmd[1:])
+						return cmd, nil
+					case 'a':
+						cmd.typ = cmdAppend
+						cmd.text = parseInsertText(cmdCmd[1:])
+						return cmd, nil
+					case 'c':
+						cmd.typ = cmdChange
+						cmd.text = parseInsertText(cmdCmd[1:])
+						return cmd, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Handle address + command: /pattern/d, /pattern/p, /pattern/i\text, etc.
 	if strings.HasPrefix(script, "/") {
 		idx := strings.Index(script[1:], "/")
 		if idx == -1 {
@@ -224,11 +267,26 @@ func parseCommand(script string) (sedCommand, error) {
 			return cmd, fmt.Errorf("invalid regex: %w", err)
 		}
 		rest := script[idx+2:]
-		if rest == "d" {
+		
+		if len(rest) == 0 {
+			return cmd, fmt.Errorf("missing command after address")
+		}
+		
+		switch rest[0] {
+		case 'd':
 			cmd.typ = cmdDelete
-		} else if rest == "p" {
+		case 'p':
 			cmd.typ = cmdPrint
-		} else {
+		case 'i':
+			cmd.typ = cmdInsert
+			cmd.text = parseInsertText(rest[1:])
+		case 'a':
+			cmd.typ = cmdAppend
+			cmd.text = parseInsertText(rest[1:])
+		case 'c':
+			cmd.typ = cmdChange
+			cmd.text = parseInsertText(rest[1:])
+		default:
 			return cmd, fmt.Errorf("unsupported command: %s", rest)
 		}
 		return cmd, nil
@@ -247,6 +305,23 @@ func parseCommand(script string) (sedCommand, error) {
 	}
 
 	return cmd, nil
+}
+
+func parseInsertText(rest string) string {
+	// Handle i\text, a\text, c\text
+	if len(rest) == 0 {
+		return ""
+	}
+	
+	// Skip backslash or space
+	start := 0
+	if rest[0] == '\\' {
+		start = 1
+	} else if rest[0] == ' ' {
+		start = 1
+	}
+	
+	return rest[start:]
 }
 
 func parseSubstitute(script string) (sedCommand, error) {
@@ -372,15 +447,35 @@ func sedFileInPlace(filename string, commands []sedCommand, quiet bool, backup s
 func sedReader(r io.Reader, out io.Writer, commands []sedCommand, quiet bool) error {
 	scanner := bufio.NewScanner(r)
 	lineNum := 0
+	var lines []string
 
+	// First pass: read all lines
 	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Second pass: process lines
+	for lineNum < len(lines) {
+		line := lines[lineNum]
 		printLine := !quiet
 		deleteLine := false
+		var insertTexts []string
+		var appendTexts []string
+		changeLine := ""
+		changeMatch := false
 
 		for _, cmd := range commands {
-			// Check address
+			// Check numeric address
+			if cmd.addressNum > 0 {
+				if lineNum+1 != cmd.addressNum {
+					continue
+				}
+			}
+
+			// Check pattern address
 			if cmd.address != "" && cmd.pattern != nil {
 				if !cmd.pattern.MatchString(line) {
 					continue
@@ -403,17 +498,46 @@ func sedReader(r io.Reader, out io.Writer, commands []sedCommand, quiet bool) er
 				deleteLine = true
 			case cmdPrint:
 				printLine = true
+			case cmdInsert:
+				insertTexts = append(insertTexts, cmd.text)
+			case cmdAppend:
+				appendTexts = append(appendTexts, cmd.text)
+			case cmdChange:
+				changeLine = cmd.text
+				changeMatch = true
 			case cmdPrintLineNum:
-				fmt.Fprintf(out, "%d\n", lineNum)
+				fmt.Fprintf(out, "%d\n", lineNum+1)
 			}
 		}
 
+		// Output insert texts before current line
+		for _, text := range insertTexts {
+			fmt.Fprintln(out, text)
+		}
+
+		// Handle change command (replaces the entire line)
+		if changeMatch {
+			if !quiet {
+				fmt.Fprintln(out, changeLine)
+			}
+			lineNum++
+			continue
+		}
+
+		// Output current line if not deleted
 		if !deleteLine && printLine {
 			fmt.Fprintln(out, line)
 		}
+
+		// Output append texts after current line
+		for _, text := range appendTexts {
+			fmt.Fprintln(out, text)
+		}
+
+		lineNum++
 	}
 
-	return scanner.Err()
+	return nil
 }
 
 func applySubstitute(line string, cmd sedCommand) (string, bool) {
