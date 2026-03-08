@@ -157,29 +157,58 @@ func grepReader(r io.Reader, pattern string, regex *regexp.Regexp, ignoreCase, i
 		if matched {
 			matches++
 			if !quiet && !count {
-				if onlyMatching && !fixedString {
+				if onlyMatching {
 					// Print only matched parts
-					var re *regexp.Regexp
-					if ignoreCase {
-						// Re-compile with case sensitivity for FindAllString
-						var err error
-						re, err = regexp.Compile(pattern)
-						if err != nil {
-							re = regex
+					if fixedString {
+						// Fixed string matching with -o: find all occurrences
+						searchPattern := pattern
+						searchLine := line
+						if ignoreCase {
+							searchPattern = strings.ToLower(pattern)
+							searchLine = strings.ToLower(line)
+						}
+						
+						start := 0
+						for {
+							idx := strings.Index(searchLine[start:], searchPattern)
+							if idx == -1 {
+								break
+							}
+							actualIdx := start + idx
+							matchedStr := line[actualIdx : actualIdx+len(pattern)]
+							if filename != "" {
+								fmt.Fprintf(out, "%s:", filename)
+							}
+							if lineNumber {
+								fmt.Fprintf(out, "%d:", lineNum)
+							}
+							fmt.Fprintln(out, matchedStr)
+							start = actualIdx + len(pattern)
 						}
 					} else {
-						re = regex
-					}
-					
-					foundMatches := re.FindAllString(line, -1)
-					for _, m := range foundMatches {
-						if filename != "" {
-							fmt.Fprintf(out, "%s:", filename)
+						// Regex matching with -o
+						var re *regexp.Regexp
+						if ignoreCase {
+							// Re-compile with case sensitivity for FindAllString
+							var err error
+							re, err = regexp.Compile(pattern)
+							if err != nil {
+								re = regex
+							}
+						} else {
+							re = regex
 						}
-						if lineNumber {
-							fmt.Fprintf(out, "%d:", lineNum)
+						
+						foundMatches := re.FindAllString(line, -1)
+						for _, m := range foundMatches {
+							if filename != "" {
+								fmt.Fprintf(out, "%s:", filename)
+							}
+							if lineNumber {
+								fmt.Fprintf(out, "%d:", lineNum)
+							}
+							fmt.Fprintln(out, m)
 						}
-						fmt.Fprintln(out, m)
 					}
 				} else {
 					// Print entire line

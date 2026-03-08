@@ -293,6 +293,76 @@ func TestGrepOnlyMatchingStdin(t *testing.T) {
 	}
 }
 
+func TestGrepFixedStringOnlyMatching(t *testing.T) {
+	// Test -F -o combination (fixed string with only matching)
+	content := "hello123world456\nfoo123bar\n"
+	writeTestFile(t, "test_fixed_only.txt", content)
+	defer os.Remove("test_fixed_only.txt")
+
+	cmd := exec.Command("./gobox", "grep", "-F", "-o", "123", "test_fixed_only.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	if len(lines) != 2 {
+		t.Errorf("Expected 2 matches, got %d: %s", len(lines), result)
+	}
+	for _, line := range lines {
+		if !strings.HasSuffix(line, ":123") {
+			t.Errorf("Expected line ending with ':123', got: %s", line)
+		}
+	}
+}
+
+func TestGrepFixedStringOnlyMatchingStdin(t *testing.T) {
+	// Test -F -o with stdin
+	cmd := exec.Command("./gobox", "grep", "-F", "-o", "test")
+	cmd.Stdin = strings.NewReader("test123test\nfoo\nbar test baz\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	expected := []string{"test", "test", "test"}
+	for i, exp := range expected {
+		if i >= len(lines) {
+			t.Errorf("Missing expected match: %s", exp)
+			continue
+		}
+		if lines[i] != exp {
+			t.Errorf("Expected '%s', got '%s'", exp, lines[i])
+		}
+	}
+}
+
+func TestGrepFixedStringOnlyMatchingIgnoreCase(t *testing.T) {
+	// Test -F -o -i combination
+	content := "TEST123test\nfoo\n"
+	writeTestFile(t, "test_fixed_only_i.txt", content)
+	defer os.Remove("test_fixed_only_i.txt")
+
+	cmd := exec.Command("./gobox", "grep", "-F", "-o", "-i", "test", "test_fixed_only_i.txt")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("grep command failed: %v", err)
+	}
+
+	result := string(output)
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	if len(lines) != 2 {
+		t.Errorf("Expected 2 matches, got %d: %s", len(lines), result)
+	}
+	// Check that both TEST and test are matched (case preserved in output)
+	if !strings.Contains(result, "TEST") && !strings.Contains(result, "test") {
+		t.Errorf("Expected TEST and test in output, got: %s", result)
+	}
+}
+
 func TestGrepQuiet(t *testing.T) {
 	content := "hello world\nfoo bar\nhello again\n"
 	writeTestFile(t, "test_quiet.txt", content)
