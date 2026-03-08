@@ -41,18 +41,18 @@ func sedCmd(args []string) error {
 			}
 			i++
 			scriptFile = args[i]
-		case strings.HasPrefix(arg, "-i"):
-			// Handle -i, -i.bak, -i backup
-			if len(arg) > 2 {
-				inPlace = arg[2:]
-			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				inPlace = args[i]
-			} else {
-				inPlace = "" // -i without backup
-			}
 		case arg == "-i":
+			// -i without backup suffix
 			inPlace = ""
+			// Mark that we saw -i, but don't consume next arg
+			// Next arg should be the script or file
+		case strings.HasPrefix(arg, "-i") && len(arg) > 2:
+			// Handle -i.bak style
+			inPlace = arg[2:]
+		case strings.HasPrefix(arg, "-i") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-"):
+			// Handle -i backup (separate arg)
+			i++
+			inPlace = args[i]
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown option: %s", arg)
@@ -185,7 +185,8 @@ const (
 type sedCommand struct {
 	typ             cmdType
 	address         string
-	addressNum      int    // For numeric addresses like "3i"
+	addressNum      int    // For numeric addresses like "3i", -1 for $ (last line)
+	addressNumEnd   int    // For range addresses like "2,4d" (0 = no range)
 	pattern         *regexp.Regexp
 	replacement     string
 	text            string // For i/a/c commands
@@ -220,7 +221,61 @@ func parseCommand(script string) (sedCommand, error) {
 		return parseSubstitute(script[1:])
 	}
 
-	// Handle numeric address + command: 3i, 5a, 2c
+	// Handle $ address (last line): $d, $p, etc.
+	if strings.HasPrefix(script, "$") {
+		cmd.address = "$"
+		cmd.addressNum = -1 // Special marker for last line
+		rest := script[1:]
+		if len(rest) == 0 {
+			return cmd, fmt.Errorf("missing command after $ address")
+		}
+		switch rest[0] {
+		case 'd':
+			cmd.typ = cmdDelete
+		case 'p':
+			cmd.typ = cmdPrint
+		case '=':
+			cmd.typ = cmdPrintLineNum
+		default:
+			return cmd, fmt.Errorf("unsupported command after $: %s", rest)
+		}
+		return cmd, nil
+	}
+
+	// Handle range address: 2,4d or 1,3p
+	if len(script) >= 4 {
+		// Check for pattern like "num,numcmd"
+		commaIdx := strings.Index(script, ",")
+		if commaIdx > 0 && commaIdx < len(script)-1 {
+			num1Str := script[:commaIdx]
+			rest := script[commaIdx+1:]
+			
+			// Find where num2 ends
+			num2End := 0
+			for num2End < len(rest) && rest[num2End] >= '0' && rest[num2End] <= '9' {
+				num2End++
+			}
+			if num2End > 0 {
+				num1, err1 := strconv.Atoi(num1Str)
+				num2, err2 := strconv.Atoi(rest[:num2End])
+				if err1 == nil && err2 == nil && num2End < len(rest) {
+					cmd.addressNum = num1      // Start of range
+					cmd.addressNumEnd = num2   // End of range
+					cmdCmd := rest[num2End:]
+					switch cmdCmd[0] {
+					case 'd':
+						cmd.typ = cmdDelete
+						return cmd, nil
+					case 'p':
+						cmd.typ = cmdPrint
+						return cmd, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Handle numeric address + command: 1d, 2d, 3i, 5a, 2c, etc.
 	if len(script) >= 2 {
 		// Check for numeric address
 		if script[0] >= '0' && script[0] <= '9' {
@@ -235,6 +290,12 @@ func parseCommand(script string) (sedCommand, error) {
 					cmd.addressNum = num
 					cmdCmd := script[idx:]
 					switch cmdCmd[0] {
+					case 'd':
+						cmd.typ = cmdDelete
+						return cmd, nil
+					case 'p':
+						cmd.typ = cmdPrint
+						return cmd, nil
 					case 'i':
 						cmd.typ = cmdInsert
 						cmd.text = parseInsertText(cmdCmd[1:])
@@ -247,13 +308,16 @@ func parseCommand(script string) (sedCommand, error) {
 						cmd.typ = cmdChange
 						cmd.text = parseInsertText(cmdCmd[1:])
 						return cmd, nil
+					case '=':
+						cmd.typ = cmdPrintLineNum
+						return cmd, nil
 					}
 				}
 			}
 		}
 	}
 
-	// Handle address + command: /pattern/d, /pattern/p, /pattern/i\text, etc.
+	// Handle address + command: /pattern/d, /pattern/p, /pattern/i\text, /pattern/=, etc.
 	if strings.HasPrefix(script, "/") {
 		idx := strings.Index(script[1:], "/")
 		if idx == -1 {
@@ -286,6 +350,8 @@ func parseCommand(script string) (sedCommand, error) {
 		case 'c':
 			cmd.typ = cmdChange
 			cmd.text = parseInsertText(rest[1:])
+		case '=':
+			cmd.typ = cmdPrintLineNum
 		default:
 			return cmd, fmt.Errorf("unsupported command: %s", rest)
 		}
@@ -335,6 +401,7 @@ func parseSubstitute(script string) (sedCommand, error) {
 	script = script[1:]
 
 	// Split by delimiter, handling escapes
+	// Only \delimiter is an escape sequence, \1, \2 etc are kept as-is
 	var parts []string
 	var current strings.Builder
 	escaped := false
@@ -344,7 +411,14 @@ func parseSubstitute(script string) (sedCommand, error) {
 			current.WriteByte(c)
 			escaped = false
 		} else if c == '\\' {
-			escaped = true
+			// Check if next char is the delimiter
+			if i+1 < len(script) && script[i+1] == delimiter {
+				escaped = true
+				// Don't write the backslash, next iteration will write the delimiter
+			} else {
+				// Keep the backslash (for \1, \2, etc.)
+				current.WriteByte(c)
+			}
 		} else if c == delimiter {
 			parts = append(parts, current.String())
 			current.Reset()
@@ -379,6 +453,11 @@ func parseSubstitute(script string) (sedCommand, error) {
 			cmd.replaceNth = n
 		}
 	}
+
+	// Convert sed-style regex to Go regex
+	// \( -> (, \) -> )
+	pattern = strings.ReplaceAll(pattern, "\\(", "(")
+	pattern = strings.ReplaceAll(pattern, "\\)", ")")
 
 	// Compile regex
 	var err error
@@ -458,7 +537,8 @@ func sedReader(r io.Reader, out io.Writer, commands []sedCommand, quiet bool) er
 	}
 
 	// Second pass: process lines
-	for lineNum < len(lines) {
+	totalLines := len(lines)
+	for lineNum < totalLines {
 		line := lines[lineNum]
 		printLine := !quiet
 		deleteLine := false
@@ -468,18 +548,42 @@ func sedReader(r io.Reader, out io.Writer, commands []sedCommand, quiet bool) er
 		changeMatch := false
 
 		for _, cmd := range commands {
-			// Check numeric address
-			if cmd.addressNum > 0 {
-				if lineNum+1 != cmd.addressNum {
-					continue
+			matched := false
+
+			// Check numeric address (including $ for last line)
+			if cmd.addressNum != 0 {
+				if cmd.addressNum == -1 {
+					// $ address - last line
+					if lineNum == totalLines-1 {
+						matched = true
+					}
+				} else if cmd.addressNumEnd > 0 {
+					// Range address: 2,4d
+					if lineNum+1 >= cmd.addressNum && lineNum+1 <= cmd.addressNumEnd {
+						matched = true
+					}
+				} else {
+					// Single numeric address: 1d, 2d, etc.
+					if lineNum+1 == cmd.addressNum {
+						matched = true
+					}
 				}
 			}
 
 			// Check pattern address
-			if cmd.address != "" && cmd.pattern != nil {
-				if !cmd.pattern.MatchString(line) {
-					continue
+			if cmd.address != "" && cmd.address != "$" && cmd.pattern != nil {
+				if cmd.pattern.MatchString(line) {
+					matched = true
 				}
+			}
+
+			// If no address specified, command applies to all lines
+			if cmd.addressNum == 0 && cmd.address == "" {
+				matched = true
+			}
+
+			if !matched {
+				continue
 			}
 
 			switch cmd.typ {
