@@ -2,7 +2,7 @@
 
 A lightweight, BusyBox-like utility toolset written in Go. This project implements a minimal set of Unix/Linux command-line tools in pure Go, designed to be a portable alternative to BusyBox for system administration and file management tasks.
 
-**Version:** 0.3 (sed with i/a/c commands)
+**Version:** 0.3 (sed with comprehensive test coverage)
 
 ## Project Overview
 
